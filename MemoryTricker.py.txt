@@ -1,0 +1,219 @@
+######################################################
+#
+# MemoryTricker
+#   a game that trains your brain
+#   by Syed Abdul Rehman 8/2016
+
+import simplegui
+import random
+
+
+# define dictionary for game levels
+#  key = number of cards (up to 19)
+#  value = size of grid (2 means 2*2, 3 means 3*3, etc.) 
+level_dict = {2:2, 3:3, 4:3, 5:4, 6:4, 7:4, 8:4, 9:5, 10:5, 11:5, 12:5, 13:6, 14:6, 15:6, 16:6, 17:6, 18:6, 19:7}
+
+# set other intital values
+record = 0        # best record in history
+round_best = 0    # best record in current round
+
+def new_game():
+    global record, life, card, countdown, round_best, new_record, round_end
+
+    if round_best > record:        # At beginning of each game, update record if  
+        record = round_best        # the score for last game played exceeds it.
+
+    countdown_timer.start()        # begin countdown at beginning of each game
+    pause_timer.stop()            # stop the delay period implemented after finishing each level 
+    
+    life = 3                # number of lives in each game
+    card = 2                # number of cards to start with
+    round_best = 0            # set round record to 0
+    countdown = 3            # countdown time before game starts 
+    
+    # set default value for booleans
+    new_record = False        # if there is a new record  
+    round_end = False        # if current level has ended
+
+def countdown_timer_handler():        # handler for countdown timer
+    global countdown
+    countdown -= 1
+    if countdown == 0:
+        countdown_timer.stop()
+        new_level()                    # begin new level (with 2 cards) 
+    
+def new_level():
+    global level, side, half_side, num_grid             # parameters
+    global center, grid, show, answer, missed           # lists
+    global showcard, can_click, paused, is_paused, win  # counters/boolean
+    
+    missed = []        # list for cards that are not correctly clicked
+    showcard = 0    # time duration to show cards before hide, called by showcard_timer_handler()
+    paused = 0        # set time duration counter for delay time to be 0
+    
+    # set default value for booleans
+    can_click = False    # if player can click on grid
+    is_paused = False    # if game is in pause (delay peroid)
+    win = False            # if player wins the level
+    
+    # given number of cards, get the size of grid (level) from dictionary
+    if card <= 19:
+        level = level_dict[card]
+    else:
+        level = 7       # max size of grid: 7*7 (suppose no one could remember 25+ cards)
+    
+    # total number of grids    
+    num_grid = level**2 
+
+    # randomly generate cards to expose
+    show = card*[True] + (num_grid - card) * [False]
+    random.shuffle(show)
+    answer = list(show)           # make a copy of the list, reserved as answer
+    showcard_timer.start()        # start timer for showing cards
+    
+    # define position of grid centers (to be used in draw handler)
+    side = 600.0 / level        # side length for each grid
+    half_side = side/2
+    center = []
+    for i in range(level):
+        for j in range(level):
+            # [index, position_x, position_y, color of card]
+            center.append([level*i+j, j*side+half_side+50, i*side+half_side+50, "orange"])   
+        
+    # define position of grid lines (to be used in draw handler)
+    grid = []
+    for i in range(level+1):
+        grid.append([50, i*side+50, 650])
+
+def pause_timer_handler():      # delay period after finishing each level
+    global paused, card, round_best, record 
+    global can_click, new_record, round_end 
+    
+    paused += 1                    # increase delay time counter by 1
+    can_click = False            # if in pause, player cannot click
+    
+    # card effect during delay period (after each level)
+    if paused <=5:                    
+        for idx in missed:          # flash missed cards
+            show[idx] = not show[idx]
+    elif paused >= 7 and not new_record:
+        for i in range(num_grid):    # hide all cards if pause time>=7
+            show[i] = False
+    
+    # text effect during delay period (after each level)
+    if paused >5 and life == 0:
+        if round_best > record:
+            new_record = True       # if new record: show "new record" string
+        else:
+            round_end = True        # else: show "game over" string
+    
+    elif paused == 10:
+        pause_timer.stop()            # end delay period if pause time>=10
+        if win:
+            round_best = card        # if win: update round record and play next level (number of cards up by 1)
+            card += 1
+        else:                        # if lose: play previous level (number of cards down by 1, mininum 2 cards)
+            card -= 1
+            if card == 1:
+                card = 2
+        new_level()                    # start new level
+
+
+def mouseclick(pos):                # handler for mouse click
+    global show, win, life
+    if can_click:
+        if sum(show) < sum(answer):    # if not all cards are found
+            for grid in center:        # iterate over all grids
+                if grid[1]-half_side < pos[0] < grid[1]+half_side and grid[2]-half_side < pos[1] < grid[2]+half_side: 
+                    if not show[grid[0]]:
+                        
+                        show[grid[0]] = True                # show card after each click (regardless of correct or not)
+                        
+                        if answer[grid[0]]:                    # after each correct click:
+                            if sum(show) == sum(answer):    # if all get correct:
+                                win = True                    #   win current level 
+                                pause_timer.start()            #   enter delay period
+                                return
+                        else:                                # if any click is wrong:
+                            win = False                        #   lose current level and return to previous level
+                            life -= 1                        #   number of lives down by 1
+                            grid[3] = "red"                    #   cards not correctly clicked to be shown in red
+                            for i in range(num_grid):        #   keep track of cards that are not found
+                                if answer[i] and not show[i]:
+                                    missed.append(i)
+                            pause_timer.start()                #   enter delay period
+                            return
+
+
+def showcard_timer_handler():       # how long to expose cards before hide
+    global showcard, show, can_click
+    showcard += 1                    # show-time counter up by 1
+    if showcard >= 3*level-2:        # length of show-time to be proportional to level of difficulty 
+        showcard_timer.stop()        
+        show = num_grid * [False]    # hide all cards
+        can_click = True            # player may begin click
+
+
+# set draw handler
+def draw(canvas):
+    
+    if countdown > 0:                # draw countdown numbers
+        canvas.draw_text(str(countdown), [300, 400], 200, "white")
+   
+    else:
+        # draw grids
+        for pos in grid:
+            canvas.draw_line([pos[0],pos[1]] , [pos[2],pos[1]] , 1 , "white")
+            canvas.draw_line([pos[1],pos[0]] , [pos[1],pos[2]] , 1 , "white")
+        
+        # draw cards (colored lines)
+        for pos in center:
+            if show[pos[0]]:
+                canvas.draw_line([pos[1] - half_side +2 , pos[2]], [pos[1] + half_side -2, pos[2]] , side-4, pos[3] )
+        
+        # draw game information
+        canvas.draw_text("Cards to retrieve: "+str(card), [50,40], 30, "white")
+        if round_best >= 2:
+            canvas.draw_text("Round best: "+str(round_best), [50, 680], 20, "white")
+        if record != 0:
+            canvas.draw_text("BEST: "+str(record), [570, 680], 20, "white")
+            
+        # draw lives left (as circles)
+        for i in range(3): 
+            canvas.draw_circle([630 - 30*i , 30], 12, 2, "white", "white")
+        for i in range(3-life):
+            canvas.draw_circle([630 - 30*i , 30], 10, 2, "black", "black")
+        
+        # draw end of game massages and record
+        if win and paused <= 6:
+            canvas.draw_text("LEVEL UP!", [80,370], 110, "white")
+
+        if new_record:
+            # change text colors for "NEW RECORD"
+            color = ["gray","silver","white","silver","gray"]
+            idx = paused %5                         
+            if paused <= 40 and idx < 4:
+                canvas.draw_text("NEW RECORD", [55,370], 90, color[idx])
+            elif paused > 40:
+                canvas.draw_text("NEW RECORD", [55,370], 90, "white")
+        elif round_end:
+            canvas.draw_text("GAME OVER", [80,370], 90, "white")
+    
+    
+# create frame and handlers
+frame = simplegui.create_frame('Memory', 700, 700)
+frame.set_draw_handler(draw)
+frame.add_label("Memory trainer. Click on grids to retrieve all the colored cards. Your highest score will be recorded.")
+frame.add_label("")
+frame.add_label("")
+frame.add_button("New game", new_game, 150)
+frame.set_mouseclick_handler(mouseclick)
+
+# create timers
+showcard_timer = simplegui.create_timer(230, showcard_timer_handler)
+pause_timer = simplegui.create_timer(230, pause_timer_handler)
+countdown_timer = simplegui.create_timer(800, countdown_timer_handler)
+
+# start game and frame
+new_game()
+frame.start()
